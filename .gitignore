@@ -29,3 +29,7 @@
 
 # Emacs temp files
 *~
+# Build outputs
+fib
+test_pardo
+*.dSYM/
