@@ -1,0 +1,206 @@
+<title>Taskparts vs Parlay on PBBS</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  /* Layout: a lab-notebook report. Headline geomean chart beside the method notes,
+     then a grid of small multiples, one per benchmark, then the raw table. */
+  :root {
+    --bg: #fbfbfa;
+    --panel: #ffffff;
+    --ink: #1c1f24;
+    --ink-2: #4f555e;
+    --ink-3: #7a808a;
+    --rule: #e3e5e8;
+    --grid: #eceef1;
+    --ref: #7a808a;
+    --s1: #2a78d6;
+    --s2: #eb6834;
+    --tip-bg: #1c1f24;
+    --tip-ink: #f3f4f6;
+    --font-sans: "IBM Plex Sans", -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #17191c; --panel: #1e2125; --ink: #eceef1; --ink-2: #b5bac2; --ink-3: #8a909a;
+      --rule: #30343a; --grid: #2a2e33; --ref: #8a909a; --s1: #3987e5; --s2: #d95926;
+      --tip-bg: #eceef1; --tip-ink: #1c1f24; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #17191c; --panel: #1e2125; --ink: #eceef1; --ink-2: #b5bac2; --ink-3: #8a909a;
+    --rule: #30343a; --grid: #2a2e33; --ref: #8a909a; --s1: #3987e5; --s2: #d95926;
+    --tip-bg: #eceef1; --tip-ink: #1c1f24; color-scheme: dark;
+  }
+  body { background: var(--bg); color: var(--ink); font-family: var(--font-sans); font-size: 15px; line-height: 1.5; }
+  main {
+    max-width: 1240px; margin: 0 auto;
+    padding-block: 32px 64px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    display: grid; gap: 40px;
+  }
+  h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.01em; margin: 0; text-wrap: balance; }
+  h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-2); margin: 0; }
+  p { margin: 0; max-width: 68ch; color: var(--ink-2); }
+  code, .mono { font-family: var(--font-mono); font-size: 0.9em; }
+  header { display: grid; gap: 10px; }
+  .lede { font-size: 16px; }
+
+  .top { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 32px; align-items: start; }
+  @media (max-width: 860px) { .top { grid-template-columns: minmax(0, 1fr); } }
+  .headline { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 16px 16px 8px; display: grid; gap: 8px; }
+  .notes { display: grid; gap: 14px; min-width: 0; }
+  dl { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; font-size: 14px; }
+  dt { color: var(--ink-3); }
+  dd { margin: 0; color: var(--ink); min-width: 0; overflow-wrap: anywhere; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 20px; font-size: 13px; color: var(--ink-2); align-items: center; }
+  .key { display: inline-flex; align-items: center; gap: 8px; }
+  .key i { display: inline-block; width: 18px; height: 2px; border-radius: 1px; }
+  .key i.s1 { background: var(--s1); } .key i.s2 { background: var(--s2); }
+  .key i.ref { height: 0; border-top: 1.5px dashed var(--ref); }
+
+  .grid-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; align-items: baseline; }
+  .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+  figure.chart { margin: 0; background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 12px 10px 4px; display: grid; gap: 2px; min-width: 0; }
+  figcaption { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; padding-left: 6px; }
+  figcaption .bench { font-weight: 600; font-size: 14px; }
+  figcaption .impl { font-family: var(--font-mono); font-size: 12px; color: var(--ink-3); }
+
+  svg { width: 100%; height: auto; display: block; overflow: visible; }
+  svg .grid { stroke: var(--grid); stroke-width: 1; }
+  svg .ref { stroke: var(--ref); stroke-width: 1.5; stroke-dasharray: 4 3; }
+  svg .axis-label { fill: var(--ink-3); font-family: var(--font-mono); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+  svg .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  svg .s1 { stroke: var(--s1); } svg .dot.s1 { fill: var(--s1); }
+  svg .s2 { stroke: var(--s2); } svg .dot.s2 { fill: var(--s2); }
+  svg .dot { stroke: var(--panel); stroke-width: 2; }
+  svg .crosshair { stroke: var(--ink-3); stroke-width: 1; }
+  svg .hit { fill: transparent; cursor: crosshair; }
+
+  #tip {
+    position: fixed; z-index: 20; pointer-events: none; background: var(--tip-bg); color: var(--tip-ink);
+    border-radius: 6px; padding: 8px 10px; font-size: 12.5px; line-height: 1.45; min-width: 200px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  }
+  #tip .t { font-weight: 600; margin-bottom: 4px; }
+  #tip table { border-collapse: collapse; font-family: var(--font-mono); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  #tip td { padding: 1px 0; } #tip td + td { padding-left: 12px; text-align: right; }
+  #tip i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+
+  details { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; }
+  summary { cursor: pointer; padding: 12px 16px; font-weight: 500; }
+  summary:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; }
+  .table-wrap { overflow-x: auto; padding: 0 16px 16px; }
+  table.data { border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  table.data th, table.data td { padding: 4px 10px; border-bottom: 1px solid var(--rule); text-align: right; }
+  table.data th:first-child, table.data td:first-child { text-align: left; }
+  table.data th { color: var(--ink-3); font-weight: 500; }
+  table.data td.v { font-family: var(--font-mono); }
+  table.data td.slow { color: var(--ink); font-weight: 500; }
+  table.data td.fast { color: var(--ink-3); }
+</style>
+
+<main>
+  <header>
+    <h1>Taskparts vs Parlay on PBBS</h1>
+    <p class="lede">Time of taskparts divided by the time of parlay's own work-stealing scheduler, at the same number of processors. Above 1× means slower than parlay; below 1× means faster. The parlay algorithms are the same in every run; only the scheduler under <code>par_do</code> and <code>parallel_for</code> changes.</p>
+  </header>
+
+  <section class="top">
+    <div class="headline">
+      <h2>Geometric mean over <span id="nb"></span> benchmarks</h2>
+      <div class="legend">
+        {{LEGEND}}
+      </div>
+      {{SUMMARY_CHART}}
+    </div>
+    <div class="notes">
+      <h2>Setup</h2>
+      <dl id="meta"></dl>
+    </div>
+  </section>
+
+  <section style="display:grid; gap:16px">
+    <div class="grid-head">
+      <h2>Per benchmark</h2>
+      <div class="legend">
+        {{LEGEND}}
+      </div>
+    </div>
+    <div class="charts">
+      {{CHARTS}}
+    </div>
+  </section>
+
+  <details>
+    <summary>All numbers (median seconds, and ratio to parlay)</summary>
+    <div class="table-wrap"><table class="data" id="table"></table></div>
+  </details>
+</main>
+<div id="tip" hidden></div>
+
+<script>
+const DATA = {{DATA}};
+const META = {{META}};
+const SERIES = DATA.series;
+document.getElementById("nb").textContent = "{{NB_BENCHES}}";
+
+const metaEl = document.getElementById("meta");
+for (const [k, v] of Object.entries(META)) {
+  const dt = document.createElement("dt"); dt.textContent = k;
+  const dd = document.createElement("dd"); dd.textContent = v;
+  metaEl.append(dt, dd);
+}
+
+const fmtR = r => (r == null ? "–" : r.toFixed(3) + "×");
+const fmtS = s => (s == null ? "–" : s < 1 ? (s * 1000).toFixed(1) + " ms" : s.toFixed(3) + " s");
+const tip = document.getElementById("tip");
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name);
+
+document.querySelectorAll("svg[data-chart]").forEach(svg => {
+  const d = DATA.benches[svg.dataset.chart];
+  const hit = svg.querySelector(".hit"), cross = svg.querySelector(".crosshair");
+  const pmin = +hit.dataset.pmin, pmax = +hit.dataset.pmax, ml = +hit.dataset.ml, pw = +hit.dataset.pw;
+  const move = ev => {
+    const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
+    const loc = pt.matrixTransform(svg.getScreenCTM().inverse());
+    const p = Math.max(pmin, Math.min(pmax, Math.round(pmin + (loc.x - ml) / pw * (pmax - pmin))));
+    const x = ml + (p - pmin) / Math.max(1, pmax - pmin) * pw;
+    cross.setAttribute("x1", x); cross.setAttribute("x2", x); cross.setAttribute("visibility", "visible");
+    let rows = SERIES.map(([v, label, c]) =>
+      `<tr><td><i style="background:${css(c)}"></i>${label}</td><td>${fmtR(d[v][p])}</td>` +
+      (d.seconds ? `<td>${fmtS(d.seconds[v][p])}</td>` : "") + `</tr>`).join("");
+    if (d.seconds) rows += `<tr><td><i style="background:${css("--ref")}"></i>parlay</td><td>1×</td><td>${fmtS(d.seconds.parlay[p])}</td></tr>`;
+    tip.innerHTML = `<div class="t">${d.name} · P = ${p}</div><table>${rows}</table>`;
+    tip.hidden = false;
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    let left = ev.clientX + 14, top = ev.clientY + 14;
+    if (left + w > innerWidth - 8) left = ev.clientX - w - 14;
+    if (top + h > innerHeight - 8) top = ev.clientY - h - 14;
+    tip.style.left = Math.max(8, left) + "px"; tip.style.top = Math.max(8, top) + "px";
+  };
+  hit.addEventListener("pointermove", move);
+  hit.addEventListener("pointerdown", move);
+  hit.addEventListener("pointerleave", () => { tip.hidden = true; cross.setAttribute("visibility", "hidden"); });
+});
+
+// table view
+const t = document.getElementById("table");
+const procs = DATA.procs;
+let h = "<tr><th>benchmark</th><th>scheduler</th>" + procs.map(p => `<th>P=${p}</th>`).join("") + "</tr>";
+for (const d of Object.values(DATA.benches)) {
+  if (!d.seconds) continue;
+  h += `<tr><td>${d.name}</td><td>parlay (s)</td>` + procs.map(p => `<td class="v">${d.seconds.parlay[p]?.toFixed(3) ?? "–"}</td>`).join("") + "</tr>";
+  for (const [v, label] of SERIES) {
+    h += `<tr><td></td><td>${label}</td>` + procs.map(p => {
+      const r = d[v][p];
+      return `<td class="v ${r == null ? "" : r > 1 ? "slow" : "fast"}">${fmtR(r)}</td>`;
+    }).join("") + "</tr>";
+  }
+}
+t.innerHTML = h;
+</script>
