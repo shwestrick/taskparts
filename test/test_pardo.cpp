@@ -75,7 +75,8 @@ double live_across_seq(long depth, long x) {
   return l + r + (double)(i0 + i1 + i2 + i3 + i4) + d0 + d1 + d2 + d3;
 }
 
-// unbalanced, deep nesting: a spine of pardos each with a small leaf
+// unbalanced, deep nesting: a spine of pardos each with a small leaf.
+// Keep the depth within the default 64 KiB (arm64) fiber stack.
 long spine(long n) {
   if (n == 0) {
     return 0;
@@ -110,7 +111,7 @@ void run_tests(size_t p) {
     }
     std::printf("  migrations observed: %ld\n", nb_migrations.load());
 
-    CHECK(spine(2000) == 2000 * fib_seq(8));
+    CHECK(spine(100) == 100 * fib_seq(8));
   }, p);
 }
 

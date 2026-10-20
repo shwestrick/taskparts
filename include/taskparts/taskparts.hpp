@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -13,14 +14,23 @@
 #include <utility>
 #include <vector>
 
-#include <sys/mman.h>
-#include <unistd.h>
-
 #include "context.hpp"
 #include "deque.hpp"
 
+// Fiber stack sizes match mainline taskparts: 64 KiB on arm64 and
+// 128 KiB on x86-64, from malloc, with no guard page.
 #ifndef TASKPARTS_STACK_SZB
-#define TASKPARTS_STACK_SZB (1 << 20)
+#if defined(__aarch64__)
+#define TASKPARTS_STACK_SZB (16 * (1 << 12))
+#else
+#define TASKPARTS_STACK_SZB (16 * (1 << 13))
+#endif
+#endif
+
+// Steal backoff, as in parlaylib: after this many failed steal attempts
+// per worker, an idle worker sleeps for 100ns per worker.
+#ifndef TASKPARTS_STEAL_ATTEMPTS_PER_WORKER
+#define TASKPARTS_STEAL_ATTEMPTS_PER_WORKER 200
 #endif
 
 /*---------------------------------------------------------------------*/
@@ -74,20 +84,16 @@ struct fiber {
   join_point* jp;
   char* stack;
 
-  fiber(join_point* jp) : jp(jp) {
-    void* p = mmap(nullptr, stack_szb, PROT_READ | PROT_WRITE,
-                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (p == MAP_FAILED) {
+  fiber(join_point* jp)
+    : jp(jp), stack(static_cast<char*>(std::malloc(stack_szb))) {
+    if (stack == nullptr) {
       std::perror("taskparts: failed to allocate fiber stack");
       std::abort();
     }
-    // guard page, to fault on stack overflow
-    mprotect(p, sysconf(_SC_PAGESIZE), PROT_NONE);
-    stack = static_cast<char*>(p);
   }
 
   ~fiber() {
-    munmap(stack, stack_szb);
+    std::free(stack);
   }
 };
 
@@ -177,8 +183,10 @@ void scheduler_loop(worker* w) {
     }
     auto jp = find_work(w);
     if (jp == nullptr) {
-      if (++nb_failed_steals % 64 == 0) {
-        std::this_thread::yield();
+      auto P = workers.size();
+      if (++nb_failed_steals > TASKPARTS_STEAL_ATTEMPTS_PER_WORKER * P) {
+        nb_failed_steals = 0;
+        std::this_thread::sleep_for(std::chrono::nanoseconds(100 * P));
       }
       continue;
     }

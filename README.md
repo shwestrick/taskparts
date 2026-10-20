@@ -21,7 +21,8 @@ to the number of hardware threads otherwise.
   point is still in the deque when `f()` returns, the worker pops it
   and calls `g()` directly, so the common case costs one push and one pop.
 - A thief that steals a join point runs `g()` on a new *fiber*: a
-  heap-allocated call stack with a guard page.
+  heap-allocated call stack, obtained with `malloc` as in mainline
+  taskparts (64 KiB on arm64, 128 KiB on x86-64, no guard page).
 - If `g()` was stolen, the two branches race to the join. Each one
   first switches to its worker's scheduler stack and then decrements
   the join counter. The branch that arrives first goes back to
@@ -35,7 +36,7 @@ to the number of hardware threads otherwise.
 ## Files
 
 - `include/taskparts/context.hpp`: context save/restore and fiber trampolines
-- `include/taskparts/deque.hpp`: fixed-capacity Chase-Lev deque
+- `include/taskparts/deque.hpp`: fixed-capacity Chase-Lev deque, one cache line per slot
 - `include/taskparts/taskparts.hpp`: join points, fibers, workers, `launch`, `pardo`
 - `example/fib.cpp`, `test/test_pardo.cpp`
 
@@ -47,8 +48,10 @@ make test
 TASKPARTS_NUM_WORKERS=8 ./fib 42
 ```
 
-Compile-time knobs: `TASKPARTS_STACK_SZB` (fiber stack size, default 1 MiB)
-and `TASKPARTS_DEQUE_CAPACITY` (default 4096).
+Compile-time knobs: `TASKPARTS_STACK_SZB` (fiber stack size, default 64 KiB on arm64 and
+128 KiB on x86-64)
+`TASKPARTS_DEQUE_CAPACITY` (default 1024), and
+`TASKPARTS_CACHE_LINE_SZB` (deque slot padding, default 64).
 
 ## Limitations
 
@@ -56,4 +59,8 @@ and `TASKPARTS_DEQUE_CAPACITY` (default 4096).
 - A fiber may migrate between threads at any `pardo`. Don't hold
   thread-local addresses or thread-affine resources such as locks
   across a `pardo`.
-- Idle workers spin, yielding every 64 failed steal attempts.
+- Fiber stacks are small and have no guard page: deep recursion inside a
+  stolen branch (or the root) overflows silently. Raise `TASKPARTS_STACK_SZB`
+  if needed.
+- Idle workers spin. After 200·P failed steal attempts in a row, a worker
+  sleeps for P·100 ns (`TASKPARTS_STEAL_ATTEMPTS_PER_WORKER`), as parlaylib does.
